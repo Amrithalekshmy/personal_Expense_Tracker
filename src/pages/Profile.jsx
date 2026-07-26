@@ -245,13 +245,13 @@ export default function Profile() {
           align-items: center;
           justify-content: center;
           position: relative;
-          box-shadow: 0 4px 16px rgba(26,127,90,0.3);
+          box-shadow: 0 4px 16px rgba(79,70,229,0.3);
           cursor: pointer;
           transition: box-shadow var(--transition);
           overflow: hidden;
         }
         .avatar-circle:hover .avatar-overlay { opacity: 1; }
-        .avatar-circle:hover { box-shadow: 0 6px 20px rgba(26,127,90,0.45); }
+        .avatar-circle:hover { box-shadow: 0 6px 20px rgba(79,70,229,0.45); }
 
         .avatar-initials {
           font-size: 28px;

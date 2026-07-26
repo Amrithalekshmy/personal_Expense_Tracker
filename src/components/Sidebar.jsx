@@ -160,7 +160,7 @@ export default function Sidebar({ open, onClose }) {
           background: var(--primary);
           color: #fff;
           font-weight: 700;
-          box-shadow: 0 2px 10px rgba(26,127,90,0.4);
+          box-shadow: 0 2px 10px rgba(79,70,229,0.4);
         }
         .sidebar-icon {
           font-size: 20px;

@@ -28,22 +28,22 @@
    To change the theme, edit ONLY these variables.
 ----------------------------------------------------------------- */
 :root {
-  /* Primary green palette */
-  --primary:       #1a7f5a;
-  --primary-light: #22a370;
-  --primary-dark:  #145f44;
+  /* Primary indigo palette */
+  --primary:       #4f46e5;
+  --primary-light: #6366f1;
+  --primary-dark:  #3730a3;
 
-  /* Accent blue */
-  --accent:        #1e6db5;
-  --accent-light:  #2a85d8;
+  /* Accent sky blue */
+  --accent:        #0ea5e9;
+  --accent-light:  #38bdf8;
 
   /* Backgrounds */
-  --bg:            #f4f7f6;   /* page background */
+  --bg:            #f1f5f9;   /* cool slate page background */
   --card-bg:       #ffffff;   /* card background */
 
   /* Sidebar */
-  --sidebar-bg:    #0f2e24;   /* deep dark green */
-  --sidebar-text:  #b8d8cc;
+  --sidebar-bg:    #0f172a;   /* deep navy */
+  --sidebar-text:  #94a3b8;
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 64px;
 
@@ -51,14 +51,14 @@
   --navbar-height: 60px;
 
   /* Text */
-  --text-main:  #1c2b22;
-  --text-muted: #6b8c7e;
+  --text-main:  #0f172a;
+  --text-muted: #64748b;
 
   /* Borders & shadows */
-  --border:       #d6e8e0;
-  --shadow:       0 2px 12px rgba(0, 0, 0, 0.07);
-  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.13);
-  --shadow-card:  0 1px 4px rgba(0, 0, 0, 0.05);
+  --border:       #e2e8f0;
+  --shadow:       0 2px 12px rgba(15, 23, 42, 0.08);
+  --shadow-hover: 0 8px 24px rgba(15, 23, 42, 0.15);
+  --shadow-card:  0 1px 4px rgba(15, 23, 42, 0.05);
 
   /* Status colors */
   --danger:        #e05252;

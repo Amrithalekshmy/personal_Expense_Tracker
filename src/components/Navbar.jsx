@@ -135,7 +135,7 @@ export default function Navbar({ onToggleSidebar }) {
         }
         .navbar-search:focus-within {
           border-color: var(--primary);
-          box-shadow: 0 0 0 3px rgba(26,127,90,0.1);
+          box-shadow: 0 0 0 3px rgba(79,70,229,0.12);
         }
         .search-icon  { color: var(--text-muted); flex-shrink: 0; }
         .search-input {
@@ -163,8 +163,8 @@ export default function Navbar({ onToggleSidebar }) {
         }
         .navbar-icon-btn:hover {
           color: var(--primary);
-          background: #e8f5ee;
-          box-shadow: 0 2px 8px rgba(26,127,90,0.2);
+          background: #ede9fe;
+          box-shadow: 0 2px 8px rgba(79,70,229,0.2);
         }
 
         /* Red dot indicator on the bell */
@@ -194,7 +194,7 @@ export default function Navbar({ onToggleSidebar }) {
           transition: box-shadow var(--transition), transform var(--transition);
         }
         .navbar-avatar:hover {
-          box-shadow: 0 0 0 3px rgba(26,127,90,0.25);
+          box-shadow: 0 0 0 3px rgba(79,70,229,0.25);
           transform: scale(1.05);
         }
 
