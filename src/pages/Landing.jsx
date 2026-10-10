@@ -46,9 +46,6 @@ export default function Landing() {
           <button className="btn btn-primary btn-lg" onClick={() => navigate('/register')}>
             Start Tracking Free
           </button>
-          <button className="btn btn-outline btn-lg" onClick={() => navigate('/dashboard')}>
-            View Demo
-          </button>
         </div>
 
         {/* Decorative stat pills */}
