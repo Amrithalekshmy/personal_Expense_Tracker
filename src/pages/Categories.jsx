@@ -1,43 +1,40 @@
-// Categories.jsx — Manage spending categories
-// Cards show icon, name, monthly spend. Add/Edit/Delete supported locally.
+// Categories.jsx — Manage the user's categories (CATEGORY table)
+// Cards show icon, name, type and this month's total from GET /api/categories,
+// plus progress against this month's budget if one is set on the Budgets page.
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   MdFastfood, MdDirectionsCar, MdShoppingCart, MdFlashOn,
   MdMovieCreation, MdLocalHospital, MdSchool, MdAttachMoney,
   MdMoreHoriz, MdAdd,
 } from 'react-icons/md';
 import ActionButtons from '../components/ActionButtons';
+import { api, fmt, colorFor } from '../api';
 
 const ICON_MAP = {
   Food: <MdFastfood />, Transport: <MdDirectionsCar />, Shopping: <MdShoppingCart />,
   Utilities: <MdFlashOn />, Entertainment: <MdMovieCreation />, Healthcare: <MdLocalHospital />,
   Education: <MdSchool />, Salary: <MdAttachMoney />, Others: <MdMoreHoriz />,
 };
-const COLOR_MAP = {
-  Food: '#e67e22', Transport: '#3498db', Shopping: '#9b59b6',
-  Utilities: '#1abc9c', Entertainment: '#e74c3c', Healthcare: '#e91e63',
-  Education: '#2196f3', Salary: '#4caf50', Others: '#9e9e9e',
-};
+const BLANK = { category_name: '', category_type: 'Expense' };
 
-const INITIAL_CATS = [
-  { id: 1, name: 'Food',          spend: 3200, budget: 5000  },
-  { id: 2, name: 'Transport',     spend: 1800, budget: 3000  },
-  { id: 3, name: 'Shopping',      spend: 4500, budget: 6000  },
-  { id: 4, name: 'Utilities',     spend: 1200, budget: 2000  },
-  { id: 5, name: 'Entertainment', spend: 900,  budget: 1500  },
-  { id: 6, name: 'Healthcare',    spend: 500,  budget: 2000  },
-  { id: 7, name: 'Education',     spend: 2449, budget: 3000  },
-  { id: 8, name: 'Salary',        spend: 0,    budget: 0     },
-  { id: 9, name: 'Others',        spend: 350,  budget: 1000  },
-];
-
-const BLANK = { name: 'Food', budget: '' };
-const fmt = n => `₹${n.toLocaleString('en-IN')}`;
-
-function CatModal({ cat, onSave, onClose }) {
-  const [form, setForm] = useState(cat ? { name: cat.name, budget: cat.budget } : BLANK);
+function CatModal({ cat, onSaved, onClose }) {
+  const [form, setForm] = useState(cat
+    ? { category_name: cat.category_name, category_type: cat.category_type }
+    : BLANK);
+  const [error, setError] = useState('');
   const ch = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+
+  const save = async () => {
+    setError('');
+    try {
+      if (cat) await api(`/categories/${cat.category_id}`, { method: 'PUT', body: form });
+      else     await api('/categories', { method: 'POST', body: form });
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -46,19 +43,27 @@ function CatModal({ cat, onSave, onClose }) {
           <span className="modal-title">{cat ? 'Edit Category' : 'Add Category'}</span>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
+        {error && <div className="form-error">{error}</div>}
         <div className="form-group">
           <label className="form-label">Category Name</label>
-          <select className="form-control" name="name" value={form.name} onChange={ch}>
-            {Object.keys(ICON_MAP).map(n => <option key={n}>{n}</option>)}
-          </select>
+          <input
+            className="form-control" name="category_name" list="category-suggestions"
+            placeholder="e.g. Rent" value={form.category_name} onChange={ch}
+          />
+          <datalist id="category-suggestions">
+            {Object.keys(ICON_MAP).map(n => <option key={n} value={n} />)}
+          </datalist>
         </div>
         <div className="form-group">
-          <label className="form-label">Monthly Budget (₹)</label>
-          <input className="form-control" name="budget" type="number" min="0" placeholder="0" value={form.budget} onChange={ch} />
+          <label className="form-label">Type</label>
+          <select className="form-control" name="category_type" value={form.category_type} onChange={ch}>
+            <option value="Expense">Expense</option>
+            <option value="Income">Income</option>
+          </select>
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onSave(form)}>{cat ? 'Save' : 'Add'}</button>
+          <button className="btn btn-primary" onClick={save}>{cat ? 'Save' : 'Add'}</button>
         </div>
       </div>
     </div>
@@ -66,20 +71,30 @@ function CatModal({ cat, onSave, onClose }) {
 }
 
 export default function Categories() {
-  const [cats, setCats] = useState(INITIAL_CATS);
+  const [cats, setCats] = useState([]);
   const [modal, setModal] = useState(null);
+  const [error, setError] = useState('');
 
-  const handleSave = form => {
-    if (modal === 'add') {
-      setCats(prev => [...prev, { ...form, id: Date.now(), spend: 0, budget: Number(form.budget) }]);
-    } else {
-      setCats(prev => prev.map(c => c.id === modal.id ? { ...c, name: form.name, budget: Number(form.budget) } : c));
-    }
+  const load = useCallback(() => {
+    api('/categories').then(setCats).catch(err => setError(err.message));
+  }, []);
+
+  useEffect(load, [load]);
+
+  const handleSaved = () => {
     setModal(null);
+    load();
   };
 
-  const handleDelete = id => {
-    if (window.confirm('Delete this category?')) setCats(prev => prev.filter(c => c.id !== id));
+  const handleDelete = async id => {
+    if (!window.confirm('Delete this category?')) return;
+    setError('');
+    try {
+      await api(`/categories/${id}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   return (
@@ -94,28 +109,38 @@ export default function Categories() {
         </button>
       </div>
 
+      {error && <div className="form-error">{error}</div>}
+
       <div className="cat-grid">
         {cats.map(c => {
-          const color = COLOR_MAP[c.name] || '#888';
-          const icon  = ICON_MAP[c.name]  || <MdMoreHoriz />;
-          const pct   = c.budget > 0 ? Math.min(100, Math.round((c.spend / c.budget) * 100)) : 0;
-          const over  = c.budget > 0 && c.spend > c.budget;
+          const color  = colorFor(c.category_name);
+          const icon   = ICON_MAP[c.category_name] || <MdMoreHoriz />;
+          const budget = c.budget_amount || 0;
+          const pct    = budget > 0 ? Math.min(100, Math.round((c.spent / budget) * 100)) : 0;
+          const over   = budget > 0 && c.spent > budget;
           return (
-            <div className="cat-card" key={c.id}>
+            <div className="cat-card" key={c.category_id}>
               <div className="cat-card-header">
                 <span className="cat-card-icon" style={{ background: color + '20', color }}>
                   {icon}
                 </span>
                 <ActionButtons
                   onEdit={() => setModal(c)}
-                  onDelete={() => handleDelete(c.id)}
+                  onDelete={() => handleDelete(c.category_id)}
                   size="sm"
                 />
               </div>
-              <div className="cat-card-name">{c.name}</div>
-              <div className="cat-card-spend">{fmt(c.spend)}</div>
-              <div className="cat-card-label">spent this month</div>
-              {c.budget > 0 && (
+              <div className="cat-card-name">
+                {c.category_name}{' '}
+                <span className={`badge badge-${c.category_type.toLowerCase()}`} style={{ fontSize: 10 }}>
+                  {c.category_type}
+                </span>
+              </div>
+              <div className="cat-card-spend">{fmt(c.spent)}</div>
+              <div className="cat-card-label">
+                {c.category_type === 'Income' ? 'received' : 'spent'} this month
+              </div>
+              {budget > 0 && (
                 <>
                   <div className="progress-bar-wrap" style={{ marginTop: 12 }}>
                     <div
@@ -125,13 +150,13 @@ export default function Categories() {
                   </div>
                   <div className="cat-card-budget-row">
                     <span className={over ? 'text-expense' : 'text-muted'} style={{ fontSize: 12 }}>
-                      {pct}% of {fmt(c.budget)}
+                      {pct}% of {fmt(budget)}
                     </span>
                     {over && <span className="badge badge-expense" style={{ fontSize: 11 }}>Over Budget</span>}
                   </div>
                 </>
               )}
-              {c.budget === 0 && (
+              {budget === 0 && c.category_type === 'Expense' && (
                 <div className="text-muted mt-8" style={{ fontSize: 12 }}>No budget set</div>
               )}
             </div>
@@ -142,7 +167,7 @@ export default function Categories() {
       {modal && (
         <CatModal
           cat={modal === 'add' ? null : modal}
-          onSave={handleSave}
+          onSaved={handleSaved}
           onClose={() => setModal(null)}
         />
       )}

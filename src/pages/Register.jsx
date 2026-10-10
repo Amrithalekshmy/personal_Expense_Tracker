@@ -1,21 +1,41 @@
 // Register.jsx — Public registration page
-// No real auth — clicking register routes to /dashboard
+// POSTs to /api/auth/register, which creates the user (with default categories)
+// and logs them in
 
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { MdPerson, MdEmail, MdLock, MdVisibility, MdVisibilityOff } from 'react-icons/md';
 import { AuthStyles } from './Login';
+import { api } from '../api';
 
 export default function Register() {
   const navigate = useNavigate();
   const [showPass, setShowPass] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
-  const handleSubmit = e => {
+  const handleSubmit = async e => {
     e.preventDefault();
-    navigate('/dashboard');
+    setError('');
+    if (form.password !== form.confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api('/auth/register', {
+        method: 'POST',
+        body: { name: form.name, email: form.email, password: form.password },
+      });
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -39,6 +59,7 @@ export default function Register() {
           <p className="auth-sub">Get started — it's free</p>
 
           <form onSubmit={handleSubmit} className="auth-form">
+            {error && <div className="auth-error">{error}</div>}
             <div className="form-group">
               <label className="form-label">Full Name</label>
               <div className="input-icon-wrap">
@@ -80,6 +101,7 @@ export default function Register() {
                   type={showPass ? 'text' : 'password'}
                   name="password"
                   placeholder="Min. 8 characters"
+                  minLength={8}
                   value={form.password}
                   onChange={handleChange}
                   required
@@ -111,8 +133,8 @@ export default function Register() {
               </div>
             </div>
 
-            <button type="submit" className="btn btn-primary auth-submit">
-              Create Account
+            <button type="submit" className="btn btn-primary auth-submit" disabled={busy}>
+              {busy ? 'Creating account…' : 'Create Account'}
             </button>
           </form>
 

@@ -1,35 +1,18 @@
 // Reports.jsx — Financial analytics page
 // Pure CSS charts (no external chart library needed).
 // Shows: summary cards, pie chart (category), bar chart (income vs expense), trend line.
+// Reports are not stored: GET /api/reports computes them with GROUP BY queries
+// over the TRANSACTION table for the chosen month.
 
+import { useState, useEffect } from 'react';
 import Card from '../components/Card';
+import { api, fmt, colorFor, monthLabel } from '../api';
 import { MdTrendingUp, MdTrendingDown, MdSwapVert, MdReceiptLong } from 'react-icons/md';
-
-// ── Mock data ──────────────────────────────────────────────
-const CATEGORY_DATA = [
-  { name: 'Food',          value: 3200, color: '#e67e22' },
-  { name: 'Transport',     value: 1800, color: '#3498db' },
-  { name: 'Shopping',      value: 4500, color: '#9b59b6' },
-  { name: 'Utilities',     value: 1200, color: '#1abc9c' },
-  { name: 'Entertainment', value: 900,  color: '#e74c3c' },
-  { name: 'Healthcare',    value: 500,  color: '#e91e63' },
-  { name: 'Education',     value: 2449, color: '#2196f3' },
-];
-
-const MONTHLY_DATA = [
-  { month: 'Feb', income: 20000, expense: 10200 },
-  { month: 'Mar', income: 22000, expense: 11400 },
-  { month: 'Apr', income: 24000, expense: 13500 },
-  { month: 'May', income: 21000, expense: 12000 },
-  { month: 'Jun', income: 26000, expense: 14800 },
-  { month: 'Jul', income: 28000, expense: 16200 },
-];
-
-const fmt = n => `₹${n.toLocaleString('en-IN')}`;
 
 // ── Pie chart using conic-gradient ─────────────────────────
 function PieChart({ data }) {
   const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return <p className="text-muted" style={{ fontSize: 13 }}>No expenses in this month.</p>;
   let cumPct = 0;
   const stops = data.map(d => {
     const pct = (d.value / total) * 100;
@@ -65,7 +48,7 @@ function PieChart({ data }) {
 
 // ── Grouped bar chart ──────────────────────────────────────
 function BarChart({ data }) {
-  const max = Math.max(...data.flatMap(d => [d.income, d.expense]));
+  const max = Math.max(1, ...data.flatMap(d => [d.income, d.expense]));
   return (
     <div className="bar-chart-wrap">
       <div className="bar-chart">
@@ -102,7 +85,7 @@ function BarChart({ data }) {
 // ── Trend line (SVG sparkline) ─────────────────────────────
 function TrendLine({ data }) {
   const W = 500, H = 120, PAD = 20;
-  const maxE = Math.max(...data.map(d => d.expense));
+  const maxE = Math.max(1, ...data.map(d => d.expense));
   const pts = data.map((d, i) => {
     const x = PAD + (i / (data.length - 1)) * (W - PAD * 2);
     const y = PAD + ((maxE - d.expense) / maxE) * (H - PAD * 2);
@@ -135,45 +118,68 @@ function TrendLine({ data }) {
 }
 
 // ── Main component ─────────────────────────────────────────
+const thisMonth = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
 export default function Reports() {
-  const totalExpense = CATEGORY_DATA.reduce((s, d) => s + d.value, 0);
-  const highest      = CATEGORY_DATA.reduce((a, b) => a.value > b.value ? a : b);
-  const lowest       = CATEGORY_DATA.reduce((a, b) => a.value < b.value ? a : b);
-  const totalTxn     = 23;
+  const [period, setPeriod] = useState(thisMonth); // "YYYY-MM"
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [year, month] = period.split('-').map(Number);
+
+  useEffect(() => {
+    api(`/reports?month=${month}&year=${year}`).then(setData).catch(err => setError(err.message));
+  }, [month, year]);
+
+  if (error) return <div className="form-error">{error}</div>;
+  if (!data) return null;
+
+  const categoryData = data.category_spend.map(c => ({ name: c.name, value: c.spent, color: colorFor(c.name) }));
+  const totalExpense = categoryData.reduce((s, d) => s + d.value, 0);
+  // Rows arrive sorted by amount (ORDER BY spent DESC)
+  const highest      = categoryData[0];
+  const lowest       = categoryData[categoryData.length - 1];
+  const totalTxn     = data.transaction_count;
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">Reports</h1>
-          <p className="page-subtitle">July 2025 — Financial Overview</p>
+          <p className="page-subtitle">{monthLabel(new Date(year, month - 1))} — Financial Overview</p>
         </div>
+        <input
+          className="form-control" type="month" style={{ width: 'auto' }}
+          value={period} onChange={e => e.target.value && setPeriod(e.target.value)}
+        />
       </div>
 
       {/* Summary cards */}
       <div className="grid-4 mb-24">
-        <Card title="Highest Spending"   value={highest.name}    subtitle={fmt(highest.value)}  icon={<MdTrendingUp />}    color="#e67e22" />
-        <Card title="Lowest Spending"    value={lowest.name}     subtitle={fmt(lowest.value)}   icon={<MdTrendingDown />}  color="var(--accent)" />
+        <Card title="Highest Spending"   value={highest?.name ?? '—'} subtitle={highest ? fmt(highest.value) : 'no expenses'} icon={<MdTrendingUp />}    color="#e67e22" />
+        <Card title="Lowest Spending"    value={lowest?.name ?? '—'}  subtitle={lowest ? fmt(lowest.value) : 'no expenses'}   icon={<MdTrendingDown />}  color="var(--accent)" />
         <Card title="Total Expenses"     value={fmt(totalExpense)} subtitle="across all categories" icon={<MdReceiptLong />} color="var(--primary)" />
-        <Card title="Total Transactions" value={totalTxn}        subtitle="this month"          icon={<MdSwapVert />}      color="#9b59b6" />
+        <Card title="Total Transactions" value={totalTxn}        subtitle="in this month"          icon={<MdSwapVert />}      color="#9b59b6" />
       </div>
 
       {/* Charts row 1 */}
       <div className="grid-2 mb-24">
         <div className="card">
           <div className="card-title mb-16">Spending by Category</div>
-          <PieChart data={CATEGORY_DATA} />
+          <PieChart data={categoryData} />
         </div>
         <div className="card">
           <div className="card-title mb-16">Income vs Expense (Monthly)</div>
-          <BarChart data={MONTHLY_DATA} />
+          <BarChart data={data.monthly} />
         </div>
       </div>
 
       {/* Trend chart */}
       <div className="card">
         <div className="card-title mb-16">Expense Trend (6 months)</div>
-        <TrendLine data={MONTHLY_DATA} />
+        <TrendLine data={data.monthly} />
       </div>
 
       <style>{`

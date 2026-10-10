@@ -1,66 +1,25 @@
 // Dashboard.jsx
-// All data here is mock/dummy. When PostgreSQL backend is ready, replace the
-// constants below with fetch() calls to your Python API endpoints.
-//
-// Suggested PostgreSQL tables this page will draw from:
-//   users(user_id, name, email, ...)
-//   transactions(txn_id, user_id, description, amount, type, category_id, payment_method, date)
-//   categories(category_id, name, icon, color)
-//   budgets(budget_id, user_id, category_id, monthly_limit, month, year)
+// Everything here comes from GET /api/dashboard, which runs aggregate SQL
+// queries (SUM / GROUP BY) over the user's transactions and budgets for the
+// current month.
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   MdAccountBalance, MdTrendingUp, MdTrendingDown,
-  MdWallet, MdAdd, MdFastfood, MdDirectionsCar,
-  MdShoppingCart, MdFlashOn, MdMovieCreation,
-  MdArrowForward,
+  MdWallet, MdAdd, MdArrowForward,
 } from 'react-icons/md';
 import Card from '../components/Card';
+import { TxnModal } from './Transactions';
+import { api, fmt, colorFor, monthLabel } from '../api';
 
-// ── Dummy data (replace with API response later) ───────────
-const SUMMARY = {
-  balance:       11800,
-  income:        28000,
-  expense:       16200,
-  budget:        20000,
-  budgetSpent:   16200,
-};
-
-const RECENT_TXN = [
-  { id: 1, desc: 'Zomato Order',        category: 'Food',        amount: 320,   date: '2025-07-24', type: 'expense', method: 'UPI'         },
-  { id: 2, desc: 'Freelance Payment',   category: 'Salary',      amount: 15000, date: '2025-07-23', type: 'income',  method: 'Net Banking' },
-  { id: 3, desc: 'Metro Card Recharge', category: 'Transport',   amount: 500,   date: '2025-07-22', type: 'expense', method: 'UPI'         },
-  { id: 4, desc: 'Amazon Purchase',     category: 'Shopping',    amount: 1250,  date: '2025-07-21', type: 'expense', method: 'Credit Card' },
-  { id: 5, desc: 'Electricity Bill',    category: 'Utilities',   amount: 740,   date: '2025-07-20', type: 'expense', method: 'Net Banking' },
-];
-
-const CATEGORY_SPEND = [
-  { name: 'Food',          icon: <MdFastfood />,     spent: 3200, color: '#e67e22' },
-  { name: 'Transport',     icon: <MdDirectionsCar />, spent: 1800, color: '#3498db' },
-  { name: 'Shopping',      icon: <MdShoppingCart />,  spent: 4500, color: '#9b59b6' },
-  { name: 'Utilities',     icon: <MdFlashOn />,       spent: 1200, color: '#1abc9c' },
-  { name: 'Entertainment', icon: <MdMovieCreation />, spent: 900,  color: '#e74c3c' },
-];
-
-// 6-month trend for the SVG line chart
-const MONTHLY = [
-  { month: 'Feb', income: 20000, expense: 10200 },
-  { month: 'Mar', income: 22000, expense: 11400 },
-  { month: 'Apr', income: 24000, expense: 13500 },
-  { month: 'May', income: 21000, expense: 12000 },
-  { month: 'Jun', income: 26000, expense: 14800 },
-  { month: 'Jul', income: 28000, expense: 16200 },
-];
-
-const fmt = n => `₹${n.toLocaleString('en-IN')}`;
 
 // ── SVG Line Chart (no library) ────────────────────────────
 function LineChart({ data }) {
   const W = 480, H = 140, PX = 32, PY = 16;
   const innerW = W - PX * 2;
   const innerH = H - PY * 2;
-  const maxVal = Math.max(...data.flatMap(d => [d.income, d.expense]));
+  const maxVal = Math.max(1, ...data.flatMap(d => [d.income, d.expense]));
 
   const x = i => PX + (i / (data.length - 1)) * innerW;
   const y = v => PY + (1 - v / maxVal) * innerH;
@@ -145,6 +104,7 @@ function LineChart({ data }) {
 // ── CSS Donut / Pie chart via conic-gradient ───────────────
 function DonutChart({ data }) {
   const total = data.reduce((s, d) => s + d.spent, 0);
+  if (total === 0) return <p className="text-muted" style={{ fontSize: 13 }}>No expenses this month yet.</p>;
   let deg = 0;
   const stops = data.map(d => {
     const slice = (d.spent / total) * 360;
@@ -177,87 +137,45 @@ function DonutChart({ data }) {
   );
 }
 
-// ── Quick Add Modal ────────────────────────────────────────
-function QuickAddModal({ onClose }) {
-  const [form, setForm] = useState({
-    desc: '', amount: '', category: 'Food', type: 'expense', method: 'UPI', date: '',
-  });
-  const ch = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
-
-  const handleAdd = () => {
-    // TODO: POST to /api/transactions when backend is ready
-    onClose();
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <span className="modal-title">Quick Add Transaction</span>
-          <button className="modal-close" onClick={onClose}>×</button>
-        </div>
-
-        <div className="form-group">
-          <label className="form-label">Description</label>
-          <input className="form-control" name="desc" placeholder="e.g. Zomato Order" value={form.desc} onChange={ch} />
-        </div>
-
-        <div className="modal-row">
-          <div className="form-group">
-            <label className="form-label">Amount (₹)</label>
-            <input className="form-control" name="amount" type="number" min="0" placeholder="0" value={form.amount} onChange={ch} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Type</label>
-            <select className="form-control" name="type" value={form.type} onChange={ch}>
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="modal-row">
-          <div className="form-group">
-            <label className="form-label">Category</label>
-            <select className="form-control" name="category" value={form.category} onChange={ch}>
-              {['Food','Transport','Shopping','Utilities','Entertainment','Healthcare','Education','Salary','Others'].map(c => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Payment Method</label>
-            <select className="form-control" name="method" value={form.method} onChange={ch}>
-              {['Cash','UPI','Credit Card','Debit Card','Net Banking'].map(m => (
-                <option key={m}>{m}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="form-group">
-          <label className="form-label">Date</label>
-          <input className="form-control" name="date" type="date" value={form.date} onChange={ch} />
-        </div>
-
-        <div className="modal-footer-btns">
-          <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleAdd}>
-            <MdAdd size={16} /> Add Transaction
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+// ── Main Dashboard ─────────────────────────────────────────
+// Percentage change between the last two months of the trend, e.g. "12%"
+function change(monthly, key) {
+  const [prev, curr] = monthly.slice(-2).map(m => m[key]);
+  if (!prev) return undefined;
+  return `${Math.abs(Math.round(((curr - prev) / prev) * 100))}%`;
 }
 
-// ── Main Dashboard ─────────────────────────────────────────
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
-  const { balance, income, expense, budget, budgetSpent } = SUMMARY;
+  const [data, setData] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    api('/dashboard').then(setData).catch(err => setError(err.message));
+  }, []);
+
+  useEffect(load, [load]);
+
+  useEffect(() => {
+    api('/categories').then(setCategories).catch(err => setError(err.message));
+  }, []);
+
+  if (error) return <div className="form-error">{error}</div>;
+  if (!data) return null;
+
+  const { balance, income, expense, budget, budget_spent: budgetSpent } = data.summary;
   const budgetRemaining = budget - budgetSpent;
-  const budgetPct       = Math.round((budgetSpent / budget) * 100);
+  const budgetPct       = budget > 0 ? Math.round((budgetSpent / budget) * 100) : 0;
+  const month           = monthLabel();
+  const categorySpend   = data.category_spend.map(c => ({ ...c, color: colorFor(c.name) }));
+  const last2           = data.monthly.slice(-2);
 
   return (
     <div className="dashboard">
@@ -265,8 +183,8 @@ export default function Dashboard() {
       {/* ── Page header ── */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Good morning, Arjun 👋</h1>
-          <p className="page-subtitle">Financial summary for July 2025</p>
+          <h1 className="page-title">{greeting()}, {data.name.split(' ')[0]} 👋</h1>
+          <p className="page-subtitle">Financial summary for {month}</p>
         </div>
         <button className="btn btn-primary" onClick={() => setShowModal(true)}>
           <MdAdd size={18} /> Quick Add
@@ -281,31 +199,29 @@ export default function Dashboard() {
           subtitle="As of today"
           icon={<MdAccountBalance />}
           color="var(--primary)"
-          trend="8.4%"
-          trendUp
         />
         <Card
           title="Monthly Income"
           value={fmt(income)}
-          subtitle="July 2025"
+          subtitle={month}
           icon={<MdTrendingUp />}
           color="var(--income-color)"
-          trend="12%"
-          trendUp
+          trend={change(data.monthly, 'income')}
+          trendUp={last2[1]?.income >= last2[0]?.income}
         />
         <Card
           title="Monthly Expense"
           value={fmt(expense)}
-          subtitle="July 2025"
+          subtitle={month}
           icon={<MdTrendingDown />}
           color="var(--expense-color)"
-          trend="4.2%"
-          trendUp={false}
+          trend={change(data.monthly, 'expense')}
+          trendUp={last2[1]?.expense >= last2[0]?.expense}
         />
         <Card
           title="Remaining Budget"
           value={fmt(budgetRemaining)}
-          subtitle={`${budgetPct}% of ${fmt(budget)} used`}
+          subtitle={budget > 0 ? `${budgetPct}% of ${fmt(budget)} used` : 'No budgets set this month'}
           icon={<MdWallet />}
           color="var(--accent)"
         />
@@ -323,7 +239,7 @@ export default function Dashboard() {
           <div
             className="progress-bar-fill"
             style={{
-              width: `${budgetPct}%`,
+              width: `${Math.min(100, budgetPct)}%`,
               background: budgetPct > 80
                 ? 'var(--danger)'
                 : budgetPct > 60
@@ -348,16 +264,16 @@ export default function Dashboard() {
             <div className="chart-title">Income vs Expense Trend</div>
             <span className="chart-period">Last 6 months</span>
           </div>
-          <LineChart data={MONTHLY} />
+          <LineChart data={data.monthly} />
         </div>
 
         {/* Donut chart */}
         <div className="card">
           <div className="chart-header">
             <div className="chart-title">Spending by Category</div>
-            <span className="chart-period">July 2025</span>
+            <span className="chart-period">{month}</span>
           </div>
-          <DonutChart data={CATEGORY_SPEND} />
+          <DonutChart data={categorySpend} />
         </div>
       </div>
 
@@ -383,20 +299,23 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {RECENT_TXN.map(t => (
-                <tr key={t.id}>
-                  <td className="text-muted" style={{ fontSize: 13 }}>{t.date}</td>
-                  <td className="fw-700">{t.desc}</td>
+              {data.recent.length === 0 && (
+                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>No transactions yet. Use Quick Add to record one.</td></tr>
+              )}
+              {data.recent.map(t => (
+                <tr key={t.transaction_id}>
+                  <td className="text-muted" style={{ fontSize: 13 }}>{t.transaction_date}</td>
+                  <td className="fw-700">{t.description}</td>
                   <td>
-                    <span className="badge badge-primary">{t.category}</span>
+                    <span className="badge badge-primary">{t.category_name}</span>
                   </td>
-                  <td className="text-muted" style={{ fontSize: 13 }}>{t.method}</td>
-                  <td className={t.type === 'income' ? 'text-income' : 'text-expense'}>
-                    {t.type === 'income' ? '+' : '−'}{fmt(t.amount)}
+                  <td className="text-muted" style={{ fontSize: 13 }}>{t.payment_method}</td>
+                  <td className={t.transaction_type === 'Income' ? 'text-income' : 'text-expense'}>
+                    {t.transaction_type === 'Income' ? '+' : '−'}{fmt(t.amount)}
                   </td>
                   <td>
-                    <span className={`badge badge-${t.type}`}>
-                      {t.type.charAt(0).toUpperCase() + t.type.slice(1)}
+                    <span className={`badge badge-${t.transaction_type.toLowerCase()}`}>
+                      {t.transaction_type}
                     </span>
                   </td>
                 </tr>
@@ -406,7 +325,13 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {showModal && <QuickAddModal onClose={() => setShowModal(false)} />}
+      {showModal && (
+        <TxnModal
+          categories={categories}
+          onSaved={() => { setShowModal(false); load(); }}
+          onClose={() => setShowModal(false)}
+        />
+      )}
 
       {/* ── Page-scoped styles ── */}
       <style>{`

@@ -14,6 +14,8 @@ import {
   MdDashboard, MdReceipt, MdCategory, MdAccountBalanceWallet,
   MdBarChart, MdPerson, MdSettings, MdLogout,
 } from 'react-icons/md';
+import { api } from '../api';
+import { useUser } from '../auth';
 
 // Navigation links — add or remove entries here to change the menu
 const NAV_ITEMS = [
@@ -28,8 +30,13 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
+  const { setUser } = useUser();
 
-  const handleLogout = () => navigate('/');
+  const handleLogout = async () => {
+    await api('/auth/logout', { method: 'POST' });
+    navigate('/');
+    setUser(undefined);
+  };
 
   return (
     <>

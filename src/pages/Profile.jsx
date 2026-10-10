@@ -1,46 +1,81 @@
 // Profile.jsx — User profile page
 //
-// Left panel : avatar, name, email, bio, quick stats
+// Left panel : avatar, name, email, quick stats
 // Right panel: editable personal info form + change-password section
 //
-// All data is dummy. When PostgreSQL backend is ready, replace
-// MOCK_USER with a GET /api/users/me response.
+// Data comes from GET /api/profile (USER row + COUNT/SUM stats);
+// saving sends PUT /api/profile and PUT /api/profile/password.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   MdEdit, MdSave, MdClose, MdLock,
   MdPerson, MdEmail, MdPhone, MdLocationOn, MdCameraAlt,
 } from 'react-icons/md';
+import { api } from '../api';
+import { useUser, initials } from '../auth';
 
-// ── Dummy user data ────────────────────────────────────────
-const MOCK_USER = {
-  name:     'Arjun Kumar',
-  email:    'arjun.kumar@example.com',
-  phone:    '+91 98765 43210',
-  location: 'Bengaluru, India',
-  joined:   'January 2025',
-  bio:      'CS student | Freelance developer | Finance enthusiast',
-};
+// Short rupee format for the stats row, e.g. ₹2.8L
+const short = n =>
+  n >= 1e7 ? `₹${(n / 1e7).toFixed(1)}Cr` : n >= 1e5 ? `₹${(n / 1e5).toFixed(1)}L`
+  : n >= 1e3 ? `₹${(n / 1e3).toFixed(1)}K` : `₹${n}`;
+
+const toForm = u => ({ name: u.name, email: u.email, phone: u.phone || '', location: u.location || '' });
 
 export default function Profile() {
-  const [user, setUser]         = useState(MOCK_USER);
+  const { setUser: setShellUser } = useUser();
+  const [user, setUser]         = useState(null);
+  const [stats, setStats]       = useState(null);
   const [editing, setEditing]   = useState(false);
-  const [form, setForm]         = useState(MOCK_USER);
+  const [form, setForm]         = useState(null);
   const [showPwd, setShowPwd]   = useState(false);
   const [pwd, setPwd]           = useState({ current: '', next: '', confirm: '' });
+  const [error, setError]       = useState('');
+  const [pwdMsg, setPwdMsg]     = useState(null); // { ok, text }
+
+  useEffect(() => {
+    api('/profile')
+      .then(d => { setUser(d.user); setStats(d.stats); setForm(toForm(d.user)); })
+      .catch(err => setError(err.message));
+  }, []);
 
   const handleFieldChange    = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
   const handlePasswordChange = e => setPwd(p => ({ ...p, [e.target.name]: e.target.value }));
 
-  const saveProfile = () => {
-    setUser(form);
-    setEditing(false);
+  const saveProfile = async () => {
+    setError('');
+    try {
+      const updated = await api('/profile', { method: 'PUT', body: form });
+      setUser(updated);
+      setShellUser(u => ({ ...u, name: updated.name, email: updated.email }));
+      setEditing(false);
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const cancelEdit = () => {
-    setForm(user);   // discard changes
+    setForm(toForm(user));   // discard changes
     setEditing(false);
   };
+
+  const updatePassword = async () => {
+    if (pwd.next !== pwd.confirm) {
+      setPwdMsg({ ok: false, text: 'New passwords do not match.' });
+      return;
+    }
+    try {
+      await api('/profile/password', { method: 'PUT', body: { current: pwd.current, next: pwd.next } });
+      setPwd({ current: '', next: '', confirm: '' });
+      setShowPwd(false);
+      setPwdMsg({ ok: true, text: 'Password updated.' });
+    } catch (err) {
+      setPwdMsg({ ok: false, text: err.message });
+    }
+  };
+
+  if (!user) return error ? <div className="form-error">{error}</div> : null;
+
+  const joined = new Date(user.joined).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 
   // Fields shown in the Personal Information form
   const FIELDS = [
@@ -68,7 +103,7 @@ export default function Profile() {
           {/* Avatar with camera overlay */}
           <div className="avatar-wrap">
             <div className="avatar-circle">
-              <span className="avatar-initials">AK</span>
+              <span className="avatar-initials">{initials(user.name)}</span>
               <div className="avatar-overlay">
                 <MdCameraAlt size={20} />
               </div>
@@ -77,28 +112,29 @@ export default function Profile() {
 
           <div className="profile-name">{user.name}</div>
           <div className="profile-email">{user.email}</div>
-          <div className="profile-bio">{user.bio}</div>
 
           {/* Location + joined pills */}
           <div className="profile-meta">
-            <span className="meta-pill">
-              <MdLocationOn size={13} /> {user.location}
-            </span>
-            <span className="meta-pill">Joined {user.joined}</span>
+            {user.location && (
+              <span className="meta-pill">
+                <MdLocationOn size={13} /> {user.location}
+              </span>
+            )}
+            <span className="meta-pill">Joined {joined}</span>
           </div>
 
           {/* Quick stats row */}
           <div className="profile-stats">
             <div className="profile-stat">
-              <strong>52</strong>
+              <strong>{stats.transactions}</strong>
               <span>Transactions</span>
             </div>
             <div className="profile-stat">
-              <strong>9</strong>
+              <strong>{stats.categories}</strong>
               <span>Categories</span>
             </div>
             <div className="profile-stat">
-              <strong>₹2.8L</strong>
+              <strong>{short(stats.tracked)}</strong>
               <span>Tracked</span>
             </div>
           </div>
@@ -109,6 +145,7 @@ export default function Profile() {
 
           {/* Personal information card */}
           <div className="card mb-24">
+            {error && <div className="form-error">{error}</div>}
             <div className="flex-between mb-16">
               <h2 className="section-heading">Personal Information</h2>
 
@@ -147,19 +184,6 @@ export default function Profile() {
                 </div>
               ))}
 
-              {/* Bio spans full width */}
-              <div className="form-group profile-bio-field">
-                <label className="form-label">Bio</label>
-                <textarea
-                  className={`form-control ${editing ? '' : 'field-readonly'}`}
-                  name="bio"
-                  rows={2}
-                  value={form.bio}
-                  onChange={handleFieldChange}
-                  readOnly={!editing}
-                  style={{ resize: 'none' }}
-                />
-              </div>
             </div>
           </div>
 
@@ -169,15 +193,21 @@ export default function Profile() {
               <h2 className="section-heading">Security</h2>
               <button
                 className="btn btn-outline btn-sm"
-                onClick={() => setShowPwd(p => !p)}
+                onClick={() => { setShowPwd(p => !p); setPwdMsg(null); }}
               >
                 <MdLock size={14} /> {showPwd ? 'Cancel' : 'Change Password'}
               </button>
             </div>
 
-            {!showPwd && (
+            {pwdMsg && (
+              <div className={pwdMsg.ok ? 'text-income mt-8' : 'form-error mt-8'} style={{ fontSize: 13 }}>
+                {pwdMsg.text}
+              </div>
+            )}
+
+            {!showPwd && !pwdMsg && (
               <p className="text-muted mt-8" style={{ fontSize: 13 }}>
-                Password last changed 3 months ago. Use a strong, unique password.
+                Use a strong, unique password of at least 8 characters.
               </p>
             )}
 
@@ -202,7 +232,7 @@ export default function Profile() {
                 ))}
                 <button
                   className="btn btn-primary"
-                  onClick={() => setShowPwd(false)}
+                  onClick={updatePassword}
                 >
                   Update Password
                 </button>
@@ -274,7 +304,6 @@ export default function Profile() {
         /* Text below avatar */
         .profile-name  { font-size: 18px; font-weight: 800; }
         .profile-email { font-size: 13px; color: var(--text-muted); }
-        .profile-bio   { font-size: 13px; color: var(--text-muted); font-style: italic; line-height: 1.5; }
 
         /* Location / joined pills */
         .profile-meta { display: flex; flex-direction: column; gap: 6px; width: 100%; }
@@ -325,7 +354,6 @@ export default function Profile() {
           gap: 0 16px;
         }
         /* Bio field spans both columns */
-        .profile-bio-field { grid-column: 1 / -1; }
 
         /* Read-only field looks like plain text */
         .field-readonly {

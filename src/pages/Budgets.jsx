@@ -1,33 +1,28 @@
-// Budgets.jsx — Monthly budget management
-// Cards show category, budget limit, amount spent, remaining with a progress bar.
-// Budget can be set/edited via modal.
+// Budgets.jsx — Monthly budget management (BUDGET table)
+// One budget per category per month/year. Cards show the limit, the amount
+// spent that month (SUM of Expense transactions, computed in SQL) and what's left.
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MdAdd, MdEdit, MdDelete } from 'react-icons/md';
+import { api, fmt, colorFor } from '../api';
 
-const CATEGORIES = ['Food','Transport','Shopping','Utilities','Entertainment','Healthcare','Education','Salary','Others'];
-const COLOR_MAP = {
-  Food: '#e67e22', Transport: '#3498db', Shopping: '#9b59b6',
-  Utilities: '#1abc9c', Entertainment: '#e74c3c', Healthcare: '#e91e63',
-  Education: '#2196f3', Salary: '#4caf50', Others: '#9e9e9e',
-};
-
-const INITIAL_BUDGETS = [
-  { id: 1, category: 'Food',          budget: 5000, spent: 3200 },
-  { id: 2, category: 'Transport',     budget: 3000, spent: 1800 },
-  { id: 3, category: 'Shopping',      budget: 6000, spent: 4500 },
-  { id: 4, category: 'Utilities',     budget: 2000, spent: 1200 },
-  { id: 5, category: 'Entertainment', budget: 1500, spent: 900  },
-  { id: 6, category: 'Healthcare',    budget: 2000, spent: 500  },
-  { id: 7, category: 'Education',     budget: 3000, spent: 2449 },
-];
-
-const fmt = n => `₹${n.toLocaleString('en-IN')}`;
-const BLANK = { category: 'Food', budget: '' };
-
-function BudgetModal({ item, onSave, onClose }) {
-  const [form, setForm] = useState(item ? { category: item.category, budget: item.budget } : BLANK);
+function BudgetModal({ item, categories, month, year, onSaved, onClose }) {
+  const [form, setForm] = useState(item
+    ? { category_id: item.category_id, budget_amount: item.budget_amount }
+    : { category_id: categories[0]?.category_id ?? '', budget_amount: '' });
+  const [error, setError] = useState('');
   const ch = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+
+  const save = async () => {
+    setError('');
+    try {
+      if (item) await api(`/budgets/${item.budget_id}`, { method: 'PUT', body: form });
+      else      await api('/budgets', { method: 'POST', body: { ...form, month, year } });
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -36,22 +31,23 @@ function BudgetModal({ item, onSave, onClose }) {
           <span className="modal-title">{item ? 'Edit Budget' : 'Set Budget'}</span>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
+        {error && <div className="form-error">{error}</div>}
         <div className="form-group">
           <label className="form-label">Category</label>
-          <select className="form-control" name="category" value={form.category} onChange={ch}>
-            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+          <select className="form-control" name="category_id" value={form.category_id} onChange={ch}>
+            {categories.map(c => <option key={c.category_id} value={c.category_id}>{c.category_name}</option>)}
           </select>
         </div>
         <div className="form-group">
           <label className="form-label">Monthly Budget (₹)</label>
           <input
-            className="form-control" name="budget" type="number" min="0"
-            placeholder="e.g. 5000" value={form.budget} onChange={ch}
+            className="form-control" name="budget_amount" type="number" min="0" step="0.01"
+            placeholder="e.g. 5000" value={form.budget_amount} onChange={ch}
           />
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onSave(form)}>
+          <button className="btn btn-primary" onClick={save}>
             {item ? 'Save Changes' : 'Set Budget'}
           </button>
         </div>
@@ -60,27 +56,51 @@ function BudgetModal({ item, onSave, onClose }) {
   );
 }
 
-export default function Budgets() {
-  const [budgets, setBudgets] = useState(INITIAL_BUDGETS);
-  const [modal, setModal] = useState(null);
+const thisMonth = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
 
-  const handleSave = form => {
-    if (modal === 'add') {
-      setBudgets(prev => [...prev, { id: Date.now(), category: form.category, budget: Number(form.budget), spent: 0 }]);
-    } else {
-      setBudgets(prev => prev.map(b => b.id === modal.id ? { ...b, category: form.category, budget: Number(form.budget) } : b));
-    }
+export default function Budgets() {
+  const [budgets, setBudgets] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [period, setPeriod] = useState(thisMonth); // "YYYY-MM"
+  const [modal, setModal] = useState(null);
+  const [error, setError] = useState('');
+
+  const [year, month] = period.split('-').map(Number);
+
+  const load = useCallback(() => {
+    api(`/budgets?month=${month}&year=${year}`).then(setBudgets).catch(err => setError(err.message));
+  }, [month, year]);
+
+  useEffect(load, [load]);
+
+  useEffect(() => {
+    api('/categories')
+      .then(cats => setCategories(cats.filter(c => c.category_type === 'Expense')))
+      .catch(err => setError(err.message));
+  }, []);
+
+  const handleSaved = () => {
     setModal(null);
+    load();
   };
 
-  const handleDelete = id => {
-    if (window.confirm('Remove this budget?')) setBudgets(prev => prev.filter(b => b.id !== id));
+  const handleDelete = async id => {
+    if (!window.confirm('Remove this budget?')) return;
+    try {
+      await api(`/budgets/${id}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   // Summary stats
-  const totalBudget = budgets.reduce((s, b) => s + b.budget, 0);
+  const totalBudget = budgets.reduce((s, b) => s + b.budget_amount, 0);
   const totalSpent  = budgets.reduce((s, b) => s + b.spent, 0);
-  const overBudget  = budgets.filter(b => b.spent > b.budget).length;
+  const overBudget  = budgets.filter(b => b.spent > b.budget_amount).length;
 
   return (
     <div>
@@ -89,10 +109,18 @@ export default function Budgets() {
           <h1 className="page-title">Budgets</h1>
           <p className="page-subtitle">Set and track your monthly spending limits</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setModal('add')}>
-          <MdAdd size={18} /> Set Budget
-        </button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <input
+            className="form-control" type="month" style={{ width: 'auto' }}
+            value={period} onChange={e => e.target.value && setPeriod(e.target.value)}
+          />
+          <button className="btn btn-primary" onClick={() => setModal('add')}>
+            <MdAdd size={18} /> Set Budget
+          </button>
+        </div>
       </div>
+
+      {error && <div className="form-error">{error}</div>}
 
       {/* Summary row */}
       <div className="grid-3 mb-24">
@@ -114,21 +142,24 @@ export default function Budgets() {
 
       {/* Budget cards */}
       <div className="budget-grid">
+        {budgets.length === 0 && (
+          <p className="text-muted">No budgets set for this month. Click “Set Budget” to add one.</p>
+        )}
         {budgets.map(b => {
-          const pct     = Math.min(100, Math.round((b.spent / b.budget) * 100));
-          const rem     = b.budget - b.spent;
-          const over    = b.spent > b.budget;
-          const color   = COLOR_MAP[b.category] || '#888';
+          const pct     = Math.min(100, Math.round((b.spent / b.budget_amount) * 100));
+          const rem     = b.budget_amount - b.spent;
+          const over    = b.spent > b.budget_amount;
+          const color   = colorFor(b.category_name);
           const barColor = over ? 'var(--danger)' : pct > 80 ? 'var(--warning)' : color;
 
           return (
-            <div className="budget-card" key={b.id}>
+            <div className="budget-card" key={b.budget_id}>
               <div className="budget-card-top">
                 <div>
-                  <div className="budget-cat" style={{ color }}>{b.category}</div>
+                  <div className="budget-cat" style={{ color }}>{b.category_name}</div>
                   <div className="budget-label">Monthly Limit</div>
                 </div>
-                <div className="budget-amount">{fmt(b.budget)}</div>
+                <div className="budget-amount">{fmt(b.budget_amount)}</div>
               </div>
 
               <div className="progress-bar-wrap">
@@ -153,7 +184,7 @@ export default function Budgets() {
 
               {over && (
                 <div className="budget-over-banner">
-                  ⚠ Over budget by {fmt(b.spent - b.budget)}
+                  ⚠ Over budget by {fmt(b.spent - b.budget_amount)}
                 </div>
               )}
 
@@ -161,7 +192,7 @@ export default function Budgets() {
                 <button className="btn btn-outline btn-sm" onClick={() => setModal(b)}>
                   <MdEdit size={14} /> Edit
                 </button>
-                <button className="btn btn-danger btn-sm" onClick={() => handleDelete(b.id)}>
+                <button className="btn btn-danger btn-sm" onClick={() => handleDelete(b.budget_id)}>
                   <MdDelete size={14} /> Remove
                 </button>
               </div>
@@ -173,7 +204,10 @@ export default function Budgets() {
       {modal && (
         <BudgetModal
           item={modal === 'add' ? null : modal}
-          onSave={handleSave}
+          categories={categories}
+          month={month}
+          year={year}
+          onSaved={handleSaved}
           onClose={() => setModal(null)}
         />
       )}

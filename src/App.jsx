@@ -1,9 +1,12 @@
 // App.jsx — Root component
 // Defines all routes and decides whether to render the sidebar/navbar layout
 // or a plain layout (for Landing, Login, Register, 404).
+// Shell pages need a logged-in user; without one they redirect to /login.
 
-import { Routes, Route, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { api } from './api';
+import { UserContext } from './auth';
 
 import Navbar    from './components/Navbar';
 import Sidebar   from './components/Sidebar';
@@ -31,7 +34,16 @@ export default function App() {
   // Default: open on desktop, closed on mobile
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
 
+  // undefined = still checking the session, null = not logged in
+  const [user, setUser] = useState(undefined);
+
   const useShell = SHELL_PAGES.some(p => pathname.startsWith(p));
+
+  useEffect(() => {
+    // Re-check on every entry into the shell (e.g. right after logging in)
+    if (!useShell) { setUser(undefined); return; }
+    api('/auth/me').then(setUser).catch(() => setUser(null));
+  }, [useShell]);
 
   if (!useShell) {
     // Public pages — no sidebar/navbar
@@ -45,7 +57,11 @@ export default function App() {
     );
   }
 
+  if (user === null) return <Navigate to="/login" replace />;
+  if (user === undefined) return null;
+
   return (
+    <UserContext.Provider value={{ user, setUser }}>
     <div className="app-layout">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className={`main-content${sidebarOpen ? '' : ' sidebar-collapsed'}`}>
@@ -64,5 +80,6 @@ export default function App() {
         </div>
       </div>
     </div>
+    </UserContext.Provider>
   );
 }

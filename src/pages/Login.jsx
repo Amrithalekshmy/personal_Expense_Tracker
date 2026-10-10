@@ -1,21 +1,32 @@
 // Login.jsx — Public login page with email + password form
-// No real auth — clicking login routes to /dashboard
+// POSTs to /api/auth/login; on success the session cookie is set and we go to /dashboard
 
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { MdEmail, MdLock, MdVisibility, MdVisibilityOff } from 'react-icons/md';
+import { api } from '../api';
 
 export default function Login() {
   const navigate = useNavigate();
   const [showPass, setShowPass] = useState(false);
   const [form, setForm] = useState({ email: '', password: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
-  const handleSubmit = e => {
+  const handleSubmit = async e => {
     e.preventDefault();
-    // Mock login — navigate directly to dashboard
-    navigate('/dashboard');
+    setError('');
+    setBusy(true);
+    try {
+      await api('/auth/login', { method: 'POST', body: form });
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -39,6 +50,7 @@ export default function Login() {
           <p className="auth-sub">Sign in to your account</p>
 
           <form onSubmit={handleSubmit} className="auth-form">
+            {error && <div className="auth-error">{error}</div>}
             <div className="form-group">
               <label className="form-label">Email address</label>
               <div className="input-icon-wrap">
@@ -79,15 +91,8 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="auth-row">
-              <label className="remember-me">
-                <input type="checkbox" /> Remember me
-              </label>
-              <a href="#" className="forgot-link">Forgot password?</a>
-            </div>
-
-            <button type="submit" className="btn btn-primary auth-submit">
-              Sign In
+            <button type="submit" className="btn btn-primary auth-submit" disabled={busy}>
+              {busy ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
 
@@ -109,6 +114,16 @@ export function AuthStyles() {
       .auth-page {
         min-height: 100vh;
         display: flex;
+      }
+
+      .auth-error {
+        background: #fff3f3;
+        color: var(--danger);
+        border: 1px solid #fcd5d5;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 13px;
+        font-weight: 600;
       }
 
       /* Left decorative panel */

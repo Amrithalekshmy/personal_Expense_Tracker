@@ -1,37 +1,46 @@
 // Transactions.jsx — Full CRUD transaction table
 // Features: search, filter by type/category/date, add/edit/delete modal.
-// All state is local (mock). Replace with API calls later.
+// Data comes from GET /api/transactions; filters are sent as query params and
+// applied in the SQL WHERE clause on the backend.
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MdAdd, MdSearch, MdFilterList } from 'react-icons/md';
 import ActionButtons from '../components/ActionButtons';
-
-const CATEGORIES = ['All','Food','Transport','Shopping','Utilities','Entertainment','Healthcare','Education','Salary','Others'];
-const PAYMENT_METHODS = ['Cash','UPI','Credit Card','Debit Card','Net Banking'];
-
-const INITIAL_TXN = [
-  { id: 1,  desc: 'Zomato Order',          category: 'Food',          method: 'UPI',         amount: 320,   type: 'expense', date: '2025-07-24' },
-  { id: 2,  desc: 'Freelance Payment',      category: 'Salary',        method: 'Net Banking',  amount: 15000, type: 'income',  date: '2025-07-23' },
-  { id: 3,  desc: 'Metro Card Recharge',    category: 'Transport',     method: 'UPI',          amount: 500,   type: 'expense', date: '2025-07-22' },
-  { id: 4,  desc: 'Amazon Purchase',        category: 'Shopping',      method: 'Credit Card',  amount: 1250,  type: 'expense', date: '2025-07-21' },
-  { id: 5,  desc: 'Electricity Bill',       category: 'Utilities',     method: 'Net Banking',  amount: 740,   type: 'expense', date: '2025-07-20' },
-  { id: 6,  desc: 'Netflix Subscription',   category: 'Entertainment', method: 'Credit Card',  amount: 649,   type: 'expense', date: '2025-07-19' },
-  { id: 7,  desc: 'Doctor Visit',           category: 'Healthcare',    method: 'Cash',         amount: 500,   type: 'expense', date: '2025-07-18' },
-  { id: 8,  desc: 'Online Course',          category: 'Education',     method: 'Debit Card',   amount: 1999,  type: 'expense', date: '2025-07-17' },
-  { id: 9,  desc: 'Part-time Income',       category: 'Salary',        method: 'UPI',          amount: 8000,  type: 'income',  date: '2025-07-15' },
-  { id: 10, desc: 'Grocery Shopping',       category: 'Food',          method: 'Cash',         amount: 1100,  type: 'expense', date: '2025-07-14' },
-  { id: 11, desc: 'Gym Membership',         category: 'Healthcare',    method: 'Credit Card',  amount: 999,   type: 'expense', date: '2025-07-12' },
-  { id: 12, desc: 'Book Purchase',          category: 'Education',     method: 'UPI',          amount: 450,   type: 'expense', date: '2025-07-10' },
-];
-
-const BLANK_FORM = { desc: '', amount: '', category: 'Food', method: 'UPI', type: 'expense', date: '' };
-
-const fmt = n => `₹${n.toLocaleString('en-IN')}`;
+import { api, fmt, today, PAYMENT_METHODS } from '../api';
 
 // ── Add/Edit Modal ─────────────────────────────────────────
-function TxnModal({ txn, onSave, onClose }) {
-  const [form, setForm] = useState(txn || BLANK_FORM);
+// Shared with the Dashboard's Quick Add button.
+export function TxnModal({ txn, categories, onSaved, onClose }) {
+  const [form, setForm] = useState(() => txn
+    ? {
+        description: txn.description || '', amount: txn.amount, category_id: txn.category_id,
+        transaction_type: txn.transaction_type, payment_method: txn.payment_method,
+        transaction_date: txn.transaction_date,
+      }
+    : {
+        description: '', amount: '', category_id: '', transaction_type: 'Expense',
+        payment_method: 'UPI', transaction_date: today(),
+      });
+  const [error, setError] = useState('');
   const ch = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+
+  // Only categories of the chosen type can be picked
+  const options = categories.filter(c => c.category_type === form.transaction_type);
+  const categoryId = options.some(c => c.category_id === Number(form.category_id))
+    ? form.category_id
+    : (options[0]?.category_id ?? '');
+
+  const save = async () => {
+    setError('');
+    try {
+      const payload = { ...form, category_id: categoryId };
+      if (txn) await api(`/transactions/${txn.transaction_id}`, { method: 'PUT', body: payload });
+      else     await api('/transactions', { method: 'POST', body: payload });
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -41,21 +50,23 @@ function TxnModal({ txn, onSave, onClose }) {
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
 
+        {error && <div className="form-error">{error}</div>}
+
         <div className="form-group">
           <label className="form-label">Description</label>
-          <input className="form-control" name="desc" placeholder="e.g. Zomato Order" value={form.desc} onChange={ch} required />
+          <input className="form-control" name="description" placeholder="e.g. Zomato Order" value={form.description} onChange={ch} />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">Amount (₹)</label>
-            <input className="form-control" name="amount" type="number" min="0" placeholder="0" value={form.amount} onChange={ch} />
+            <input className="form-control" name="amount" type="number" min="0" step="0.01" placeholder="0" value={form.amount} onChange={ch} />
           </div>
           <div className="form-group">
             <label className="form-label">Type</label>
-            <select className="form-control" name="type" value={form.type} onChange={ch}>
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
+            <select className="form-control" name="transaction_type" value={form.transaction_type} onChange={ch}>
+              <option value="Expense">Expense</option>
+              <option value="Income">Income</option>
             </select>
           </div>
         </div>
@@ -63,13 +74,14 @@ function TxnModal({ txn, onSave, onClose }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">Category</label>
-            <select className="form-control" name="category" value={form.category} onChange={ch}>
-              {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
+            <select className="form-control" name="category_id" value={categoryId} onChange={ch}>
+              {options.length === 0 && <option value="">No {form.transaction_type} categories</option>}
+              {options.map(c => <option key={c.category_id} value={c.category_id}>{c.category_name}</option>)}
             </select>
           </div>
           <div className="form-group">
             <label className="form-label">Payment Method</label>
-            <select className="form-control" name="method" value={form.method} onChange={ch}>
+            <select className="form-control" name="payment_method" value={form.payment_method} onChange={ch}>
               {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
             </select>
           </div>
@@ -77,12 +89,12 @@ function TxnModal({ txn, onSave, onClose }) {
 
         <div className="form-group">
           <label className="form-label">Date</label>
-          <input className="form-control" name="date" type="date" value={form.date} onChange={ch} />
+          <input className="form-control" name="transaction_date" type="date" value={form.transaction_date} onChange={ch} />
         </div>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button className="btn btn-outline" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onSave(form)}>
+          <button className="btn btn-primary" onClick={save}>
             {txn ? 'Save Changes' : 'Add Transaction'}
           </button>
         </div>
@@ -93,34 +105,45 @@ function TxnModal({ txn, onSave, onClose }) {
 
 // ── Main component ─────────────────────────────────────────
 export default function Transactions() {
-  const [txns, setTxns] = useState(INITIAL_TXN);
+  const [txns, setTxns] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
-  const [catFilter, setCatFilter] = useState('All');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [catFilter, setCatFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [modal, setModal] = useState(null); // null | 'add' | {txn object}
+  const [error, setError] = useState('');
 
-  // Filtered + searched list
-  const filtered = useMemo(() => txns.filter(t => {
-    if (search     && !t.desc.toLowerCase().includes(search.toLowerCase())) return false;
-    if (catFilter  !== 'All'  && t.category !== catFilter) return false;
-    if (typeFilter !== 'all'  && t.type     !== typeFilter) return false;
-    if (dateFilter && t.date !== dateFilter) return false;
-    return true;
-  }), [txns, search, catFilter, typeFilter, dateFilter]);
+  const load = useCallback(() => {
+    const params = new URLSearchParams();
+    if (search)     params.set('search', search);
+    if (catFilter)  params.set('category_id', catFilter);
+    if (typeFilter) params.set('type', typeFilter);
+    if (dateFilter) params.set('date', dateFilter);
+    api(`/transactions?${params}`)
+      .then(d => { setTxns(d.transactions); setTotal(d.total); })
+      .catch(err => setError(err.message));
+  }, [search, catFilter, typeFilter, dateFilter]);
 
-  const handleSave = form => {
-    if (modal === 'add') {
-      setTxns(prev => [{ ...form, id: Date.now(), amount: Number(form.amount) }, ...prev]);
-    } else {
-      setTxns(prev => prev.map(t => t.id === modal.id ? { ...modal, ...form, amount: Number(form.amount) } : t));
-    }
+  useEffect(load, [load]);
+
+  useEffect(() => {
+    api('/categories').then(setCategories).catch(err => setError(err.message));
+  }, []);
+
+  const handleSaved = () => {
     setModal(null);
+    load();
   };
 
-  const handleDelete = id => {
-    if (window.confirm('Delete this transaction?')) {
-      setTxns(prev => prev.filter(t => t.id !== id));
+  const handleDelete = async id => {
+    if (!window.confirm('Delete this transaction?')) return;
+    try {
+      await api(`/transactions/${id}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -129,12 +152,14 @@ export default function Transactions() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Transactions</h1>
-          <p className="page-subtitle">{txns.length} transactions recorded</p>
+          <p className="page-subtitle">{total} transactions recorded</p>
         </div>
         <button className="btn btn-primary" onClick={() => setModal('add')}>
           <MdAdd size={18} /> Add Transaction
         </button>
       </div>
+
+      {error && <div className="form-error mb-24">{error}</div>}
 
       {/* Filters */}
       <div className="card mb-24">
@@ -149,12 +174,13 @@ export default function Transactions() {
             />
           </div>
           <select className="form-control filter-select" value={catFilter} onChange={e => setCatFilter(e.target.value)}>
-            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+            <option value="">All Categories</option>
+            {categories.map(c => <option key={c.category_id} value={c.category_id}>{c.category_name}</option>)}
           </select>
           <select className="form-control filter-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
-            <option value="all">All Types</option>
-            <option value="income">Income</option>
-            <option value="expense">Expense</option>
+            <option value="">All Types</option>
+            <option value="Income">Income</option>
+            <option value="Expense">Expense</option>
           </select>
           <input
             className="form-control filter-select"
@@ -164,7 +190,7 @@ export default function Transactions() {
           />
           <button
             className="btn btn-outline btn-sm"
-            onClick={() => { setSearch(''); setCatFilter('All'); setTypeFilter('all'); setDateFilter(''); }}
+            onClick={() => { setSearch(''); setCatFilter(''); setTypeFilter(''); setDateFilter(''); }}
           >
             <MdFilterList size={15} /> Reset
           </button>
@@ -187,27 +213,27 @@ export default function Transactions() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 && (
+              {txns.length === 0 && (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>No transactions found.</td></tr>
               )}
-              {filtered.map(t => (
-                <tr key={t.id}>
-                  <td className="text-muted">{t.date}</td>
-                  <td className="fw-700">{t.desc}</td>
-                  <td><span className="badge badge-primary">{t.category}</span></td>
-                  <td className="text-muted">{t.method}</td>
-                  <td className={t.type === 'income' ? 'text-income' : 'text-expense'}>
-                    {t.type === 'income' ? '+' : '-'}{fmt(t.amount)}
+              {txns.map(t => (
+                <tr key={t.transaction_id}>
+                  <td className="text-muted">{t.transaction_date}</td>
+                  <td className="fw-700">{t.description}</td>
+                  <td><span className="badge badge-primary">{t.category_name}</span></td>
+                  <td className="text-muted">{t.payment_method}</td>
+                  <td className={t.transaction_type === 'Income' ? 'text-income' : 'text-expense'}>
+                    {t.transaction_type === 'Income' ? '+' : '-'}{fmt(t.amount)}
                   </td>
                   <td>
-                    <span className={`badge badge-${t.type}`}>
-                      {t.type.charAt(0).toUpperCase() + t.type.slice(1)}
+                    <span className={`badge badge-${t.transaction_type.toLowerCase()}`}>
+                      {t.transaction_type}
                     </span>
                   </td>
                   <td>
                     <ActionButtons
                       onEdit={() => setModal(t)}
-                      onDelete={() => handleDelete(t.id)}
+                      onDelete={() => handleDelete(t.transaction_id)}
                       size="md"
                     />
                   </td>
@@ -221,7 +247,8 @@ export default function Transactions() {
       {modal && (
         <TxnModal
           txn={modal === 'add' ? null : modal}
-          onSave={handleSave}
+          categories={categories}
+          onSaved={handleSaved}
           onClose={() => setModal(null)}
         />
       )}

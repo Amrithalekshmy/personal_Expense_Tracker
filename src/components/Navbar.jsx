@@ -9,6 +9,7 @@
 
 import { useLocation, useNavigate } from 'react-router-dom';
 import { MdMenu, MdNotificationsNone, MdSearch } from 'react-icons/md';
+import { useUser, initials } from '../auth';
 
 // Human-readable page titles for each route
 const TITLE_MAP = {
@@ -25,6 +26,7 @@ export default function Navbar({ onToggleSidebar }) {
   const { pathname } = useLocation();
   const navigate     = useNavigate();
   const title        = TITLE_MAP[pathname] ?? 'ExpenseTrack';
+  const { user }     = useUser();
 
   return (
     <header className="navbar">
@@ -60,9 +62,9 @@ export default function Navbar({ onToggleSidebar }) {
           className="navbar-avatar"
           onClick={() => navigate('/profile')}
           aria-label="Go to profile"
-          title="Profile"
+          title={user.name}
         >
-          AK
+          {initials(user.name)}
         </button>
       </div>
 

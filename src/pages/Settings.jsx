@@ -1,7 +1,9 @@
-// Settings.jsx — App preferences (UI only, no persistence)
-// Covers theme toggle, currency, language, notification toggles.
+// Settings.jsx — App preferences
+// Theme, currency, language and notification toggles are UI only (the Phase 3
+// schema has no settings table). Export CSV and Clear All use the database.
 
 import { useState } from 'react';
+import { api } from '../api';
 import { MdSave, MdPalette, MdLanguage, MdNotifications, MdAttachMoney } from 'react-icons/md';
 
 const CURRENCIES = ['INR (₹)', 'USD ($)', 'EUR (€)', 'GBP (£)', 'JPY (¥)'];
@@ -21,6 +23,16 @@ export default function Settings() {
 
   const ch  = e => setSettings(s => ({ ...s, [e.target.name]: e.target.value }));
   const tog = key => setSettings(s => ({ ...s, [key]: !s[key] }));
+
+  const clearAll = async () => {
+    if (!window.confirm('Delete ALL your transactions? This cannot be undone.')) return;
+    try {
+      const { deleted } = await api('/transactions', { method: 'DELETE' });
+      window.alert(`Deleted ${deleted} transactions.`);
+    } catch (err) {
+      window.alert(err.message);
+    }
+  };
 
   const handleSave = () => {
     setSaved(true);
@@ -124,14 +136,14 @@ export default function Settings() {
                 <div className="toggle-label">Export Data</div>
                 <div className="toggle-desc">Download all your transactions as CSV</div>
               </div>
-              <button className="btn btn-outline btn-sm">Export CSV</button>
+              <a className="btn btn-outline btn-sm" href="/api/transactions/export">Export CSV</a>
             </div>
             <div className="data-row">
               <div>
                 <div className="toggle-label">Clear Data</div>
                 <div className="toggle-desc">Remove all transactions and reset the app</div>
               </div>
-              <button className="btn btn-danger btn-sm">Clear All</button>
+              <button className="btn btn-danger btn-sm" onClick={clearAll}>Clear All</button>
             </div>
           </div>
         </div>
