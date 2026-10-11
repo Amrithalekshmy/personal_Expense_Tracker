@@ -5,7 +5,10 @@
 # kept in a signed session cookie, and every query is filtered by that user_id.
 #
 # Run:  python app.py        (listens on http://localhost:5000)
+from dotenv import load_dotenv
+from pathlib import Path
 
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 import csv
 import io
 import os

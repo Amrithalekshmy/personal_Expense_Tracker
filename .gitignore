@@ -26,3 +26,6 @@ dist-ssr
 # Python backend
 .venv
 __pycache__
+.env
+.env.*
+!.env.example
