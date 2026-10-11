@@ -1,6 +1,6 @@
 # Personal Expense Tracker
 
-23CSE202 Database Management Systems — Group D16
+23CSE202 Database Management Systems — Group D16.
 
 A web app for recording income and expenses, organising them into categories,
 setting monthly budgets and viewing reports. The database design follows the
